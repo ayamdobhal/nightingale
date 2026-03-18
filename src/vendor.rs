@@ -555,31 +555,11 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
     let py_str = py.to_string_lossy().to_string();
     let index = gpu.torch_index;
 
-    let torch_args: Vec<&str> = vec![
-        "pip", "install",
-        "--reinstall-package", "torch",
-        "--reinstall-package", "torchaudio",
-        "torch>=2.0.0", "torchaudio>=2.0.0",
-        "--python", &py_str,
-        "--index-url", index,
-    ];
-
-    let output = silent_command(&uv)
-        .args(&torch_args)
-        .output()
-        .map_err(|e| format!("Failed to run uv pip install torch: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("PyTorch install failed: {stderr}"));
-    }
-
     let audio_sep_pkg = if gpu.device == "cuda" {
         "audio-separator[gpu]>=0.25"
     } else {
         "audio-separator>=0.25"
     };
-    send(tx, "Packages", "Installing Demucs, WhisperX and audio-separator...");
 
     let cython_out = silent_command(&uv)
         .args(["pip", "install", "cython", "setuptools", "--python"])
@@ -591,17 +571,21 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
         return Err(format!("Build deps install failed: {stderr}"));
     }
 
-    let pkg_args: Vec<&str> = vec![
+    send(tx, "Packages", "Installing PyTorch, Demucs, WhisperX and audio-separator...");
+
+    let install_args: Vec<&str> = vec![
         "pip", "install",
+        "torch>=2.0.0", "torchaudio>=2.0.0",
         "demucs>=4.0.0", "whisperx>=3.3.0", "soundfile",
         "huggingface_hub>=0.27.0",
         audio_sep_pkg,
         "--python", &py_str,
-        "--extra-index-url", index,
+        "--index-url", index,
+        "--extra-index-url", "https://pypi.org/simple",
     ];
 
     let output = silent_command(&uv)
-        .args(&pkg_args)
+        .args(&install_args)
         .output()
         .map_err(|e| format!("Failed to run uv pip install: {e}"))?;
 
