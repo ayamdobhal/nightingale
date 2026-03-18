@@ -536,15 +536,20 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
         return Err(format!("Build deps install failed: {stderr}"));
     }
 
+    let mut pkg_args: Vec<&str> = vec![
+        "pip", "install",
+        "demucs>=4.0.0", "whisperx>=3.3.0", "soundfile",
+        "huggingface_hub>=0.27.0",
+        audio_sep_pkg,
+        "--python",
+    ];
+    pkg_args.push(&py_str);
+    if let Some(url) = index_url {
+        pkg_args.extend(["--extra-index-url", url]);
+    }
+
     let output = silent_command(&uv)
-        .args([
-            "pip", "install",
-            "demucs>=4.0.0", "whisperx>=3.3.0", "soundfile",
-            "huggingface_hub>=0.27.0",
-            audio_sep_pkg,
-            "--python",
-        ])
-        .arg(&py)
+        .args(&pkg_args)
         .output()
         .map_err(|e| format!("Failed to run uv pip install: {e}"))?;
 
