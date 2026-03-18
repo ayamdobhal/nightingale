@@ -598,7 +598,8 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
             "pip", "install",
             "--reinstall-package", "torch",
             "--reinstall-package", "torchaudio",
-            "torch>=2.0.0", "torchaudio>=2.0.0",
+            "--reinstall-package", "torchvision",
+            "torch>=2.0.0", "torchaudio>=2.0.0", "torchvision>=0.15.0",
             "--python", &py_str,
             "--index-url", index,
         ];
