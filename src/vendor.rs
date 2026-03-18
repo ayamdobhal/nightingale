@@ -413,7 +413,7 @@ fn has_python_in(dir: &PathBuf) -> bool {
     }
     let target = if cfg!(windows) { "python.exe" } else { "python3.10" };
     for entry in walkdir::WalkDir::new(dir).max_depth(5).into_iter().flatten() {
-        if entry.file_name().to_string_lossy() == target {
+        if entry.file_type().is_file() && entry.file_name().to_string_lossy() == target {
             return true;
         }
     }
@@ -426,7 +426,7 @@ fn find_installed_python() -> Option<PathBuf> {
     let python_dir = vendor_dir().join("python");
     let target = if cfg!(windows) { "python.exe" } else { "python3.10" };
     for entry in walkdir::WalkDir::new(&python_dir).max_depth(5).into_iter().flatten() {
-        if entry.file_name().to_string_lossy() == target {
+        if entry.file_type().is_file() && entry.file_name().to_string_lossy() == target {
             return Some(entry.into_path());
         }
     }
