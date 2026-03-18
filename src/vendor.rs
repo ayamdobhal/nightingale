@@ -592,7 +592,7 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
     }
 
     if gpu.device == "cuda" {
-        send(tx, "Packages", format!("Installing CUDA PyTorch from {index}..."));
+        send(tx, "Packages", format!("Installing CUDA PyTorch..."));
 
         let torch_args: Vec<&str> = vec![
             "pip", "install",
