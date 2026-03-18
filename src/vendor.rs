@@ -464,50 +464,105 @@ fn step_create_venv(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), String> 
 
 // ─── Step 5: Install packages ────────────────────────────────────────
 
-fn detect_gpu() -> &'static str {
+struct GpuInfo {
+    device: &'static str,
+    torch_index: &'static str,
+}
+
+fn detect_gpu() -> GpuInfo {
     #[cfg(target_os = "macos")]
     {
-        return "mps";
+        return GpuInfo {
+            device: "mps",
+            torch_index: "https://download.pytorch.org/whl/cpu",
+        };
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        if silent_command("nvidia-smi")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-        {
-            "cuda"
-        } else {
-            "cpu"
+        match nvidia_smi_path() {
+            Some(smi) => {
+                let cuda_index = query_cuda_index(&smi);
+                eprintln!("[vendor] GPU detection: CUDA (index {cuda_index})");
+                GpuInfo {
+                    device: "cuda",
+                    torch_index: cuda_index,
+                }
+            }
+            None => {
+                eprintln!("[vendor] GPU detection: CPU (nvidia-smi not found)");
+                GpuInfo {
+                    device: "cpu",
+                    torch_index: "https://download.pytorch.org/whl/cpu",
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn nvidia_smi_path() -> Option<&'static str> {
+    let ok = silent_command("nvidia-smi")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+
+    if ok {
+        eprintln!("[vendor] nvidia-smi found on PATH");
+        Some("nvidia-smi")
+    } else {
+        eprintln!("[vendor] nvidia-smi not found on PATH");
+        None
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn query_cuda_index(nvidia_smi: &str) -> &'static str {
+    let output = silent_command(nvidia_smi)
+        .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
+        .output();
+
+    let major = output
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            eprintln!("[vendor] GPU compute capability: {text}");
+            text.split('.').next().and_then(|m| m.parse::<u32>().ok())
+        });
+
+    match major {
+        Some(v) if v >= 10 => "https://download.pytorch.org/whl/cu128",
+        Some(_) => "https://download.pytorch.org/whl/cu121",
+        None => {
+            eprintln!("[vendor] Could not query compute capability, falling back to cu126");
+            "https://download.pytorch.org/whl/cu126"
         }
     }
 }
 
 fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), String> {
     let gpu = detect_gpu();
-    send(tx, "Packages", format!("Detected compute: {gpu}. Installing PyTorch..."));
+    send(
+        tx,
+        "Packages",
+        format!("Detected compute: {} ({}). Installing PyTorch...", gpu.device, gpu.torch_index),
+    );
 
     let uv = uv_path();
     let py = python_path();
-
-    let mut torch_args: Vec<&str> = vec![
-        "pip", "install",
-        "torch>=2.0.0", "torchaudio>=2.0.0",
-        "--python",
-    ];
     let py_str = py.to_string_lossy().to_string();
-    torch_args.push(&py_str);
+    let index = gpu.torch_index;
 
-    let index_url = match gpu {
-        "cuda" => Some("https://download.pytorch.org/whl/cu121"),
-        "cpu" => Some("https://download.pytorch.org/whl/cpu"),
-        _ => None,
-    };
-    if let Some(url) = index_url {
-        torch_args.extend(["--index-url", url]);
-    }
+    let torch_args: Vec<&str> = vec![
+        "pip", "install",
+        "--reinstall-package", "torch",
+        "--reinstall-package", "torchaudio",
+        "torch>=2.0.0", "torchaudio>=2.0.0",
+        "--python", &py_str,
+        "--index-url", index,
+    ];
 
     let output = silent_command(&uv)
         .args(&torch_args)
@@ -519,7 +574,7 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
         return Err(format!("PyTorch install failed: {stderr}"));
     }
 
-    let audio_sep_pkg = if gpu == "cuda" {
+    let audio_sep_pkg = if gpu.device == "cuda" {
         "audio-separator[gpu]>=0.25"
     } else {
         "audio-separator>=0.25"
@@ -536,17 +591,14 @@ fn step_install_packages(tx: &mpsc::Sender<BootstrapProgress>) -> Result<(), Str
         return Err(format!("Build deps install failed: {stderr}"));
     }
 
-    let mut pkg_args: Vec<&str> = vec![
+    let pkg_args: Vec<&str> = vec![
         "pip", "install",
         "demucs>=4.0.0", "whisperx>=3.3.0", "soundfile",
         "huggingface_hub>=0.27.0",
         audio_sep_pkg,
-        "--python",
+        "--python", &py_str,
+        "--extra-index-url", index,
     ];
-    pkg_args.push(&py_str);
-    if let Some(url) = index_url {
-        pkg_args.extend(["--extra-index-url", url]);
-    }
 
     let output = silent_command(&uv)
         .args(&pkg_args)
