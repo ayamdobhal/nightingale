@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 
+use crate::config::AppConfig;
 use crate::spotify::api::SpotifyTrack;
+
+const MAX_CONCURRENT: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadPhase {
@@ -65,21 +68,23 @@ pub struct CompletedDownload {
 #[derive(Resource, Default)]
 pub struct DownloadManager {
     pub queue: VecDeque<DownloadRequest>,
-    pub active: Option<ActiveDownload>,
+    pub active: Vec<ActiveDownload>,
     pub completed: Vec<CompletedDownload>,
     pub failed: Vec<(SpotifyTrack, String)>,
 }
 
 impl DownloadManager {
     pub fn enqueue(&mut self, track: SpotifyTrack) {
-        // Don't add duplicates
         if self.is_queued_or_active(&track.id) || self.is_completed(&track.id) {
+            eprintln!("[downloader] Skipping duplicate: {} - {}", track.artists.join(", "), track.name);
             return;
         }
+        eprintln!("[downloader] Enqueued: {} - {} (queue size: {})", track.artists.join(", "), track.name, self.queue.len() + 1);
         self.queue.push_back(DownloadRequest { track });
     }
 
     pub fn enqueue_all(&mut self, tracks: Vec<SpotifyTrack>) {
+        eprintln!("[downloader] Enqueuing {} tracks", tracks.len());
         for track in tracks {
             self.enqueue(track);
         }
@@ -87,10 +92,7 @@ impl DownloadManager {
 
     pub fn is_queued_or_active(&self, spotify_id: &str) -> bool {
         self.queue.iter().any(|r| r.track.id == spotify_id)
-            || self
-                .active
-                .as_ref()
-                .is_some_and(|a| a.request.track.id == spotify_id)
+            || self.active.iter().any(|a| a.request.track.id == spotify_id)
     }
 
     pub fn is_completed(&self, spotify_id: &str) -> bool {
@@ -108,7 +110,7 @@ impl DownloadManager {
         if self.is_failed(spotify_id) {
             return Some(DownloadPhase::Failed);
         }
-        if let Some(ref active) = self.active {
+        for active in &self.active {
             if active.request.track.id == spotify_id {
                 return Some(active.progress.lock().unwrap().phase.clone());
             }
@@ -119,22 +121,23 @@ impl DownloadManager {
         None
     }
 
+    pub fn active_progress_list(&self) -> Vec<(SpotifyTrack, DownloadProgress)> {
+        self.active
+            .iter()
+            .map(|a| (a.request.track.clone(), a.progress.lock().unwrap().clone()))
+            .collect()
+    }
+
+    /// For backward compat with UI expecting single active
     pub fn active_progress(&self) -> Option<(SpotifyTrack, DownloadProgress)> {
-        self.active.as_ref().map(|a| {
+        self.active.first().map(|a| {
             (a.request.track.clone(), a.progress.lock().unwrap().clone())
         })
     }
 
     pub fn total_queued(&self) -> usize {
-        self.queue.len() + if self.active.is_some() { 1 } else { 0 }
+        self.queue.len() + self.active.len()
     }
-}
-
-pub fn downloads_dir() -> PathBuf {
-    dirs::home_dir()
-        .expect("could not find home directory")
-        .join(".nightingale")
-        .join("downloads")
 }
 
 pub struct DownloaderPlugin;
@@ -142,80 +145,143 @@ pub struct DownloaderPlugin;
 impl Plugin for DownloaderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DownloadManager>()
-            .add_systems(Update, (process_download_queue, poll_active_download));
+            .add_systems(Update, (process_download_queue, poll_active_downloads));
     }
 }
 
-fn process_download_queue(mut manager: ResMut<DownloadManager>) {
-    if manager.active.is_some() || manager.queue.is_empty() {
-        return;
+fn process_download_queue(
+    mut manager: ResMut<DownloadManager>,
+    config: Res<AppConfig>,
+) {
+    while manager.active.len() < MAX_CONCURRENT && !manager.queue.is_empty() {
+        let request = manager.queue.pop_front().unwrap();
+        let progress = Arc::new(Mutex::new(DownloadProgress {
+            phase: DownloadPhase::SearchingYoutube,
+            percent: 0.0,
+            error: None,
+        }));
+
+        let progress_clone = Arc::clone(&progress);
+        let track = request.track.clone();
+        let music_folder = config.last_folder.clone();
+
+        eprintln!(
+            "[downloader] Starting download: {} - {} (active: {}, queued: {})",
+            track.artists.join(", "),
+            track.name,
+            manager.active.len() + 1,
+            manager.queue.len(),
+        );
+
+        let thread = std::thread::spawn(move || {
+            download_track(track, progress_clone, music_folder)
+        });
+
+        manager.active.push(ActiveDownload {
+            request,
+            progress,
+            thread: Some(thread),
+        });
     }
-
-    let request = manager.queue.pop_front().unwrap();
-    let progress = Arc::new(Mutex::new(DownloadProgress {
-        phase: DownloadPhase::SearchingYoutube,
-        percent: 0.0,
-        error: None,
-    }));
-
-    let progress_clone = Arc::clone(&progress);
-    let track = request.track.clone();
-
-    let thread = std::thread::spawn(move || {
-        download_track(track, progress_clone)
-    });
-
-    manager.active = Some(ActiveDownload {
-        request,
-        progress,
-        thread: Some(thread),
-    });
 }
 
-fn poll_active_download(mut manager: ResMut<DownloadManager>) {
-    let is_done = {
-        let Some(ref active) = manager.active else {
-            return;
+fn poll_active_downloads(mut manager: ResMut<DownloadManager>) {
+    let mut i = 0;
+    while i < manager.active.len() {
+        let is_done = {
+            let p = manager.active[i].progress.lock().unwrap();
+            matches!(p.phase, DownloadPhase::Done | DownloadPhase::Failed)
         };
-        let p = active.progress.lock().unwrap();
-        matches!(p.phase, DownloadPhase::Done | DownloadPhase::Failed)
-    };
 
-    if !is_done {
-        return;
-    }
+        if !is_done {
+            i += 1;
+            continue;
+        }
 
-    let mut active = manager.active.take().unwrap();
-    let track = active.request.track.clone();
+        let mut active = manager.active.remove(i);
+        let track = active.request.track.clone();
 
-    if let Some(handle) = active.thread.take() {
-        match handle.join() {
-            Ok(Ok(path)) => {
-                eprintln!("[downloader] Completed: {} - {}", track.artists.join(", "), track.name);
-                manager.completed.push(CompletedDownload { track, path });
-            }
-            Ok(Err(err)) => {
-                eprintln!("[downloader] Failed: {} - {} — {err}", track.artists.join(", "), track.name);
-                manager.failed.push((track, err));
-            }
-            Err(_) => {
-                manager.failed.push((track, "Thread panicked".to_string()));
+        if let Some(handle) = active.thread.take() {
+            match handle.join() {
+                Ok(Ok(path)) => {
+                    eprintln!(
+                        "[downloader] Completed: {} - {} -> {}",
+                        track.artists.join(", "),
+                        track.name,
+                        path.display()
+                    );
+                    manager.completed.push(CompletedDownload { track, path });
+                }
+                Ok(Err(err)) => {
+                    eprintln!(
+                        "[downloader] Failed: {} - {} — {}",
+                        track.artists.join(", "),
+                        track.name,
+                        err
+                    );
+                    manager.failed.push((track, err));
+                }
+                Err(_) => {
+                    eprintln!("[downloader] Thread panicked for: {} - {}", track.artists.join(", "), track.name);
+                    manager.failed.push((track, "Thread panicked".to_string()));
+                }
             }
         }
+        // don't increment i — we removed an element
     }
+}
+
+/// Determine output path: music_folder/Album/Artist - Title.opus
+fn output_path_for(track: &SpotifyTrack, music_folder: Option<&PathBuf>) -> PathBuf {
+    let base = match music_folder {
+        Some(folder) if folder.is_dir() => folder.clone(),
+        _ => {
+            let fallback = dirs::home_dir()
+                .expect("could not find home directory")
+                .join(".nightingale")
+                .join("downloads");
+            let _ = std::fs::create_dir_all(&fallback);
+            fallback
+        }
+    };
+
+    // Sanitize names for filesystem
+    let album = sanitize_filename(&track.album_name);
+    let artist = track.artists.first().cloned().unwrap_or_else(|| "Unknown".to_string());
+    let filename = sanitize_filename(&format!("{} - {}", artist, track.name));
+
+    let dir = base.join(&album);
+    let _ = std::fs::create_dir_all(&dir);
+
+    dir.join(format!("{filename}.opus"))
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 fn download_track(
     track: SpotifyTrack,
     progress: Arc<Mutex<DownloadProgress>>,
+    music_folder: Option<PathBuf>,
 ) -> Result<PathBuf, String> {
-    let dl_dir = downloads_dir();
-    let _ = std::fs::create_dir_all(&dl_dir);
+    let output_path = output_path_for(&track, music_folder.as_ref());
 
-    let output_path = dl_dir.join(format!("{}.opus", track.id));
+    eprintln!(
+        "[downloader] Output path: {}",
+        output_path.display()
+    );
 
     // Check if already downloaded
     if output_path.is_file() {
+        eprintln!("[downloader] Already exists, skipping: {}", output_path.display());
         let mut p = progress.lock().unwrap();
         p.phase = DownloadPhase::Done;
         p.percent = 100.0;
@@ -227,7 +293,9 @@ fn download_track(
         let mut p = progress.lock().unwrap();
         p.phase = DownloadPhase::FetchingYtdlp;
     }
+    eprintln!("[downloader] Ensuring yt-dlp is available...");
     ytdlp::ensure_ytdlp()?;
+    eprintln!("[downloader] yt-dlp ready");
 
     // Search YouTube
     {
@@ -241,7 +309,9 @@ fn download_track(
         track.artists.first().unwrap_or(&"Unknown".to_string()),
         track.name,
     );
+    eprintln!("[downloader] Searching YouTube: \"{}\"", search_query);
     let youtube_url = ytdlp::search_youtube(&search_query, track.duration_ms)?;
+    eprintln!("[downloader] Found: {youtube_url}");
 
     // Download
     {
@@ -250,11 +320,16 @@ fn download_track(
         p.percent = 0.0;
     }
 
+    eprintln!("[downloader] Downloading audio...");
     let progress_clone = Arc::clone(&progress);
     ytdlp::download_audio(&youtube_url, &output_path, move |pct| {
         let mut p = progress_clone.lock().unwrap();
         p.percent = pct;
+        if pct as u32 % 25 == 0 {
+            eprintln!("[downloader] Progress: {pct:.0}%");
+        }
     })?;
+    eprintln!("[downloader] Download complete: {}", output_path.display());
 
     // Tag metadata
     {
@@ -263,6 +338,7 @@ fn download_track(
         p.percent = 95.0;
     }
 
+    eprintln!("[downloader] Tagging metadata...");
     if let Err(e) = tagger::tag_file(&output_path, &track) {
         eprintln!("[downloader] Tagging failed (non-fatal): {e}");
     }
@@ -274,8 +350,8 @@ fn download_track(
         p.percent = 100.0;
     }
 
-    // Save metadata sidecar
-    let meta_path = dl_dir.join(format!("{}.json", track.id));
+    // Save metadata sidecar next to the file
+    let meta_path = output_path.with_extension("json");
     let meta_json = serde_json::json!({
         "id": track.id,
         "name": track.name,
@@ -287,6 +363,13 @@ fn download_track(
         "track_number": track.track_number,
     });
     let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta_json).unwrap());
+
+    eprintln!(
+        "[downloader] Done: {} - {} -> {}",
+        track.artists.join(", "),
+        track.name,
+        output_path.display()
+    );
 
     Ok(output_path)
 }

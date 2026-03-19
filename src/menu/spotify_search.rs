@@ -269,12 +269,12 @@ fn rebuild_overlay(
                     });
 
                     // Download queue section
-                    let active = dl_manager.active_progress();
+                    let active_list = dl_manager.active_progress_list();
                     let queued = dl_manager.total_queued();
                     let completed_count = dl_manager.completed.len();
                     let failed_count = dl_manager.failed.len();
 
-                    if active.is_some() || queued > 0 || completed_count > 0 || failed_count > 0 {
+                    if !active_list.is_empty() || queued > 0 || completed_count > 0 || failed_count > 0 {
                         card.spawn(Node {
                             height: Val::Px(1.0),
                             width: Val::Percent(100.0),
@@ -296,8 +296,8 @@ fn rebuild_overlay(
                             },
                         ))
                         .with_children(|queue| {
-                            // Active download
-                            if let Some((track, progress)) = active {
+                            // Active downloads
+                            for (track, progress) in &active_list {
                                 let status = format!(
                                     "{} {} - {} ({:.0}%)",
                                     if matches!(progress.phase, DownloadPhase::Done) { "OK" } else { ">>" },
