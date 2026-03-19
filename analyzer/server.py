@@ -16,6 +16,10 @@ import json
 import os
 import sys
 
+if os.name == "nt":
+    import huggingface_hub.file_download as _hf_dl
+    _hf_dl.are_symlinks_supported = lambda *_a, **_kw: False
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from whisper_compat import progress, detect_device, compute_type_for, is_oom, free_gpu
