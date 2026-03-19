@@ -2,6 +2,7 @@
 
 mod analyzer;
 mod config;
+mod log_viewer;
 pub mod error;
 pub mod input;
 mod menu;
@@ -139,7 +140,8 @@ fn main() {
         .add_plugins(scanner::ScannerPlugin)
         .add_plugins(analyzer::AnalyzerPlugin)
         .add_plugins(menu::MenuPlugin)
-        .add_plugins(player::PlayerPlugin);
+        .add_plugins(player::PlayerPlugin)
+        .add_plugins(log_viewer::LogViewerPlugin);
 
     if vendor_ready {
         app.add_systems(Startup, skip_setup);

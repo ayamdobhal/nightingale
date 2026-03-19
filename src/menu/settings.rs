@@ -13,7 +13,7 @@ const MODELS: &[&str] = &["large-v3", "large-v3-turbo", "medium", "small", "base
 #[derive(Resource)]
 pub struct SettingsFocus(pub usize);
 
-const SETTINGS_ROW_COUNT: usize = 7;
+const SETTINGS_ROW_COUNT: usize = 8;
 
 struct SettingsRowMapping {
     enter: SettingsAction,
@@ -32,6 +32,7 @@ const fn row_mapping(
 fn settings_rows() -> [SettingsRowMapping; SETTINGS_ROW_COUNT] {
     [
         row_mapping(SettingsAction::ToggleFullscreen, None, None),
+        row_mapping(SettingsAction::ToggleShowLogs, None, None),
         row_mapping(
             SettingsAction::SeparatorNext,
             Some(SettingsAction::SeparatorPrev),
@@ -107,25 +108,30 @@ pub fn spawn_settings_popup(
                         SettingsValueText(SettingsField::Fullscreen),
                         &[("Switch", SettingsAction::ToggleFullscreen)],
                         "Toggle between fullscreen and windowed mode", 0);
+                    let logs_label = if config.show_logs() { "On" } else { "Off" };
+                    spawn_settings_row(card, theme, "Show Logs", logs_label,
+                        SettingsValueText(SettingsField::ShowLogs),
+                        &[("Toggle", SettingsAction::ToggleShowLogs)],
+                        "Show log overlay (F12). Useful for debugging analysis issues", 1);
 
                     spawn_settings_section(card, theme, "Analyzer");
                     let sep_label = separator_display(config.separator());
                     spawn_settings_row(card, theme, "Separator", sep_label,
                         SettingsValueText(SettingsField::Separator),
                         &[("<", SettingsAction::SeparatorPrev), (">", SettingsAction::SeparatorNext)],
-                        "Karaoke removes backing vocals for cleaner lyrics; Demucs is faster", 1);
+                        "Karaoke removes backing vocals for cleaner lyrics; Demucs is faster", 2);
                     spawn_settings_row(card, theme, "Model", config.whisper_model(),
                         SettingsValueText(SettingsField::Model),
                         &[("<", SettingsAction::ModelPrev), (">", SettingsAction::ModelNext)],
-                        "turbo is fastest, v3 is most accurate", 2);
+                        "turbo is fastest, v3 is most accurate", 3);
                     spawn_settings_row(card, theme, "Beam size", &config.beam_size().to_string(),
                         SettingsValueText(SettingsField::Beam),
                         &[("-", SettingsAction::BeamDown), ("+", SettingsAction::BeamUp)],
-                        "Higher values improve accuracy at the cost of speed", 3);
+                        "Higher values improve accuracy at the cost of speed", 4);
                     spawn_settings_row(card, theme, "Batch size", &config.batch_size().to_string(),
                         SettingsValueText(SettingsField::Batch),
                         &[("-", SettingsAction::BatchDown), ("+", SettingsAction::BatchUp)],
-                        "Higher values use more memory but process faster", 4);
+                        "Higher values use more memory but process faster", 5);
 
                     card.spawn((
                         Text::new("Changes apply to future analyses. Use the re-analyze button on song cards to apply."),
@@ -137,8 +143,8 @@ pub fn spawn_settings_popup(
                         },
                     ));
 
-                    spawn_settings_wide_btn(card, "Restore Defaults", SettingsAction::RestoreDefaults, theme, 5);
-                    spawn_settings_wide_btn(card, "Close", SettingsAction::Close, theme, 6);
+                    spawn_settings_wide_btn(card, "Restore Defaults", SettingsAction::RestoreDefaults, theme, 6);
+                    spawn_settings_wide_btn(card, "Close", SettingsAction::Close, theme, 7);
                 });
         });
 }
@@ -303,6 +309,13 @@ fn dispatch_settings_action(
                 set_settings_text(value_texts, SettingsField::Fullscreen, new_label);
             }
         }
+        SettingsAction::ToggleShowLogs => {
+            let new_val = !config.show_logs();
+            config.show_logs = Some(new_val);
+            config.save();
+            let label = if new_val { "On" } else { "Off" };
+            set_settings_text(value_texts, SettingsField::ShowLogs, label);
+        }
         SettingsAction::SeparatorPrev | SettingsAction::SeparatorNext => {
             let current = config.separator();
             let idx = SEPARATORS.iter().position(|(k, _)| *k == current).unwrap_or(0);
@@ -359,6 +372,7 @@ fn dispatch_settings_action(
             config.beam_size = None;
             config.batch_size = None;
             config.fullscreen = None;
+            config.show_logs = None;
             config.save();
             set_settings_text(value_texts, SettingsField::Separator, separator_display(config.separator()));
             set_settings_text(value_texts, SettingsField::Model, config.whisper_model());
@@ -366,6 +380,8 @@ fn dispatch_settings_action(
             set_settings_text(value_texts, SettingsField::Batch, &config.batch_size().to_string());
             let fs_label = if config.is_fullscreen() { "Fullscreen" } else { "Windowed" };
             set_settings_text(value_texts, SettingsField::Fullscreen, fs_label);
+            let logs_label = if config.show_logs() { "On" } else { "Off" };
+            set_settings_text(value_texts, SettingsField::ShowLogs, logs_label);
             if let Ok(mut window) = windows.single_mut() {
                 window.mode = if config.is_fullscreen() {
                     WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current)
@@ -472,12 +488,13 @@ pub fn handle_settings_click(
             Interaction::Hovered => {
                 let row_for_action = match settings_btn.action {
                     SettingsAction::ToggleFullscreen => Some(0),
-                    SettingsAction::SeparatorPrev | SettingsAction::SeparatorNext => Some(1),
-                    SettingsAction::ModelPrev | SettingsAction::ModelNext => Some(2),
-                    SettingsAction::BeamDown | SettingsAction::BeamUp => Some(3),
-                    SettingsAction::BatchDown | SettingsAction::BatchUp => Some(4),
-                    SettingsAction::RestoreDefaults => Some(5),
-                    SettingsAction::Close => Some(6),
+                    SettingsAction::ToggleShowLogs => Some(1),
+                    SettingsAction::SeparatorPrev | SettingsAction::SeparatorNext => Some(2),
+                    SettingsAction::ModelPrev | SettingsAction::ModelNext => Some(3),
+                    SettingsAction::BeamDown | SettingsAction::BeamUp => Some(4),
+                    SettingsAction::BatchDown | SettingsAction::BatchUp => Some(5),
+                    SettingsAction::RestoreDefaults => Some(6),
+                    SettingsAction::Close => Some(7),
                 };
                 if let (Some(sf), Some(row)) = (&mut settings_focus, row_for_action) {
                     sf.0 = row;

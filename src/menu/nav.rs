@@ -218,6 +218,7 @@ pub(super) fn apply_menu_focus_styling(
 
 pub(super) fn scroll_to_focused(
     focus: Res<MenuFocus>,
+    menu_state: Res<super::MenuState>,
     mut scroll_query: Query<(&mut ScrollPosition, &ComputedNode), With<SongListRoot>>,
     card_query: Query<(&SongCard, &Node, &ComputedNode)>,
 ) {
@@ -234,22 +235,25 @@ pub(super) fn scroll_to_focused(
         return;
     }
 
-    let gap = 8.0;
-    let mut cards: Vec<(usize, f32)> = card_query
-        .iter()
-        .filter(|(_, node, _)| node.display != Display::None)
-        .map(|(card, _, computed)| {
-            (
+    // Build a height lookup from the ECS
+    let mut height_map: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+    for (card, node, computed) in &card_query {
+        if node.display != Display::None {
+            height_map.insert(
                 card.song_index,
                 computed.size().y * computed.inverse_scale_factor(),
-            )
-        })
-        .collect();
-    cards.sort_by_key(|(idx, _)| *idx);
+            );
+        }
+    }
 
+    // Walk in sorted (visual) order
+    let gap = 8.0;
     let mut y = 0.0;
-    for (idx, height) in &cards {
-        if *idx == focus.song_index {
+    for &idx in &menu_state.sorted_indices {
+        let Some(&height) = height_map.get(&idx) else {
+            continue;
+        };
+        if idx == focus.song_index {
             if y < scroll_pos.y {
                 scroll_pos.y = y;
             } else if y + height > scroll_pos.y + list_height {
