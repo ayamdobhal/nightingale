@@ -126,6 +126,10 @@ impl Plugin for MenuPlugin {
             )
             .add_systems(
                 Update,
+                handle_sort_click.run_if(in_state(AppState::Menu)),
+            )
+            .add_systems(
+                Update,
                 sidebar::update_about_link_hover
                     .run_if(in_state(AppState::Menu)),
             )
@@ -158,9 +162,37 @@ impl Plugin for MenuPlugin {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibrarySort {
+    #[default]
+    Title,
+    Artist,
+    Album,
+}
+
+impl LibrarySort {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Title => "Title",
+            Self::Artist => "Artist",
+            Self::Album => "Album",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Title => Self::Artist,
+            Self::Artist => Self::Album,
+            Self::Album => Self::Title,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct MenuState {
     pub(crate) search_query: String,
+    pub(crate) sort: LibrarySort,
+    pub(crate) sorted_indices: Vec<usize>,
 }
 
 #[derive(Resource)]
@@ -220,10 +252,42 @@ fn kick_off_cache_stats(mut commands: Commands) {
     sidebar::start_cache_stats_computation(&mut commands);
 }
 
+fn compute_sorted_indices(library: &SongLibrary, sort: LibrarySort) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..library.songs.len()).collect();
+    match sort {
+        LibrarySort::Title => indices.sort_by(|&a, &b| {
+            library.songs[a].display_title().to_lowercase().cmp(
+                &library.songs[b].display_title().to_lowercase(),
+            )
+        }),
+        LibrarySort::Artist => indices.sort_by(|&a, &b| {
+            let cmp = library.songs[a].display_artist().to_lowercase().cmp(
+                &library.songs[b].display_artist().to_lowercase(),
+            );
+            cmp.then_with(|| {
+                library.songs[a].display_title().to_lowercase().cmp(
+                    &library.songs[b].display_title().to_lowercase(),
+                )
+            })
+        }),
+        LibrarySort::Album => indices.sort_by(|&a, &b| {
+            let cmp = library.songs[a].album.to_lowercase().cmp(
+                &library.songs[b].album.to_lowercase(),
+            );
+            cmp.then_with(|| {
+                library.songs[a].display_title().to_lowercase().cmp(
+                    &library.songs[b].display_title().to_lowercase(),
+                )
+            })
+        }),
+    }
+    indices
+}
+
 fn build_menu(
     mut commands: Commands,
     library: Res<SongLibrary>,
-    menu_state: Res<MenuState>,
+    mut menu_state: ResMut<MenuState>,
     art_cache: Res<AlbumArtCache>,
     theme: Res<UiTheme>,
     config: Res<crate::config::AppConfig>,
@@ -233,6 +297,7 @@ fn build_menu(
     mut focus: ResMut<MenuFocus>,
 ) {
     *focus = MenuFocus::default();
+    menu_state.sorted_indices = compute_sorted_indices(&library, menu_state.sort);
     let has_folder = config.last_folder.as_ref().is_some_and(|f| f.is_dir());
 
     let logo_handle: Handle<Image> = asset_server.load("images/logo.png");
@@ -398,6 +463,45 @@ fn build_main_area(
             Visibility::Hidden,
         ));
 
+        // Sort bar
+        main.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(8.0),
+            margin: UiRect::bottom(Val::Px(4.0)),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|bar| {
+            bar.spawn((
+                Text::new("Sort:"),
+                TextFont { font_size: 12.0, ..default() },
+                TextColor(theme.text_dim),
+            ));
+            for sort_option in [LibrarySort::Title, LibrarySort::Artist, LibrarySort::Album] {
+                let is_active = menu_state.sort == sort_option;
+                let bg = if is_active { theme.accent } else { theme.popup_btn };
+                let text_color = if is_active { Color::WHITE } else { theme.text_secondary };
+                bar.spawn((
+                    SortButton(sort_option),
+                    Button,
+                    Node {
+                        padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(4.0), Val::Px(4.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(bg),
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new(sort_option.label()),
+                        TextFont { font_size: 12.0, ..default() },
+                        TextColor(text_color),
+                    ));
+                });
+            }
+        });
+
         main.spawn((
             SongListRoot,
             Node {
@@ -413,10 +517,12 @@ fn build_main_area(
         .with_children(|list| {
             let query = menu_state.search_query.to_lowercase();
             let active_profile = profiles.active.as_deref();
-            for (i, song) in library.songs.iter().enumerate() {
+            for &i in &menu_state.sorted_indices {
+                let song = &library.songs[i];
                 let visible = query.is_empty()
                     || song.display_title().to_lowercase().contains(&query)
-                    || song.display_artist().to_lowercase().contains(&query);
+                    || song.display_artist().to_lowercase().contains(&query)
+                    || song.album.to_lowercase().contains(&query);
                 let art = art_cache.handles.get(i).and_then(|h| h.clone());
                 let best = active_profile
                     .and_then(|p| profiles.best_score(&song.file_hash, p));
@@ -466,6 +572,58 @@ fn build_empty_state(parent: &mut ChildSpawnerCommands, theme: &UiTheme) {
                 TextColor(theme.text_dim),
             ));
         });
+}
+
+fn handle_sort_click(
+    interaction_query: Query<(&Interaction, &SortButton), Changed<Interaction>>,
+    mut menu_state: ResMut<MenuState>,
+    library: Res<SongLibrary>,
+    // Trigger a full menu rebuild by re-entering the state
+    mut commands: Commands,
+    menu_root: Query<Entity, With<MenuRoot>>,
+    art_cache: Res<AlbumArtCache>,
+    theme: Res<UiTheme>,
+    config: Res<AppConfig>,
+    asset_server: Res<AssetServer>,
+    profiles: Res<ProfileStore>,
+    cache_stats: Res<sidebar::CacheStats>,
+    mut focus: ResMut<MenuFocus>,
+) {
+    for (interaction, sort_btn) in &interaction_query {
+        if matches!(interaction, Interaction::Pressed) && menu_state.sort != sort_btn.0 {
+            menu_state.sort = sort_btn.0;
+            menu_state.sorted_indices = compute_sorted_indices(&library, menu_state.sort);
+
+            // Rebuild menu
+            for entity in &menu_root {
+                commands.entity(entity).despawn();
+            }
+            *focus = MenuFocus::default();
+
+            let has_folder = config.last_folder.as_ref().is_some_and(|f| f.is_dir());
+            let logo_handle: Handle<Image> = asset_server.load("images/logo.png");
+            let icon_font = IconFont(asset_server.load("fonts/fa-solid-900.ttf"));
+            commands.insert_resource(icon_font.clone());
+
+            commands
+                .spawn((
+                    MenuRoot,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Row,
+                        ..default()
+                    },
+                    BackgroundColor(theme.bg),
+                ))
+                .with_children(|root| {
+                    sidebar::build_sidebar(root, &theme, has_folder, logo_handle, &icon_font, &profiles, &cache_stats);
+                    build_main_area(root, &library, &menu_state, &art_cache, &theme, &icon_font, &profiles);
+                });
+
+            break;
+        }
+    }
 }
 
 fn handle_song_click(

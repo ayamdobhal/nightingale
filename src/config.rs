@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub last_video_flavor: Option<usize>,
     pub separator: Option<String>,
     pub language_overrides: Option<HashMap<String, String>>,
+    pub show_logs: Option<bool>,
 }
 
 impl AppConfig {
@@ -83,6 +84,10 @@ impl AppConfig {
         self.language_overrides
             .as_ref()
             .and_then(|m| m.get(hash).map(|s| s.as_str()))
+    }
+
+    pub fn show_logs(&self) -> bool {
+        self.show_logs.unwrap_or(false)
     }
 
     pub fn set_language_override(&mut self, hash: String, lang: String) {

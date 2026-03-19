@@ -44,6 +44,7 @@ pub enum SettingsAction {
     BeamDown,
     BatchUp,
     BatchDown,
+    ToggleShowLogs,
     RestoreDefaults,
     Close,
 }
@@ -66,6 +67,7 @@ pub enum SettingsField {
     Beam,
     Batch,
     Fullscreen,
+    ShowLogs,
 }
 
 #[derive(Component)]
@@ -116,6 +118,9 @@ pub struct AboutOverlay;
 
 #[derive(Component)]
 pub struct AboutCloseButton;
+
+#[derive(Component)]
+pub struct SortButton(pub super::LibrarySort);
 
 #[derive(Resource)]
 pub struct LanguagePickerTarget {
