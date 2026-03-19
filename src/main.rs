@@ -2,7 +2,9 @@
 
 mod analyzer;
 mod config;
+mod downloader;
 mod log_viewer;
+mod spotify;
 pub mod error;
 pub mod input;
 mod menu;
@@ -141,7 +143,8 @@ fn main() {
         .add_plugins(analyzer::AnalyzerPlugin)
         .add_plugins(menu::MenuPlugin)
         .add_plugins(player::PlayerPlugin)
-        .add_plugins(log_viewer::LogViewerPlugin);
+        .add_plugins(log_viewer::LogViewerPlugin)
+        .add_plugins(downloader::DownloaderPlugin);
 
     if vendor_ready {
         app.add_systems(Startup, skip_setup);
