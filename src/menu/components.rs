@@ -46,6 +46,10 @@ pub enum SettingsAction {
     BatchUp,
     BatchDown,
     ToggleShowLogs,
+    DownloadFormatPrev,
+    DownloadFormatNext,
+    DownloadTimeoutDown,
+    DownloadTimeoutUp,
     RestoreDefaults,
     Close,
 }
@@ -69,6 +73,8 @@ pub enum SettingsField {
     Batch,
     Fullscreen,
     ShowLogs,
+    DownloadFormat,
+    DownloadTimeout,
 }
 
 #[derive(Component)]

@@ -13,7 +13,8 @@ const MODELS: &[&str] = &["large-v3", "large-v3-turbo", "medium", "small", "base
 #[derive(Resource)]
 pub struct SettingsFocus(pub usize);
 
-const SETTINGS_ROW_COUNT: usize = 8;
+const DOWNLOAD_FORMATS: &[&str] = &["flac", "mp3", "ogg", "wav", "m4a"];
+const SETTINGS_ROW_COUNT: usize = 10;
 
 struct SettingsRowMapping {
     enter: SettingsAction,
@@ -52,6 +53,16 @@ fn settings_rows() -> [SettingsRowMapping; SETTINGS_ROW_COUNT] {
             SettingsAction::BatchUp,
             Some(SettingsAction::BatchDown),
             Some(SettingsAction::BatchUp),
+        ),
+        row_mapping(
+            SettingsAction::DownloadFormatNext,
+            Some(SettingsAction::DownloadFormatPrev),
+            Some(SettingsAction::DownloadFormatNext),
+        ),
+        row_mapping(
+            SettingsAction::DownloadTimeoutUp,
+            Some(SettingsAction::DownloadTimeoutDown),
+            Some(SettingsAction::DownloadTimeoutUp),
         ),
         row_mapping(SettingsAction::RestoreDefaults, None, None),
         row_mapping(SettingsAction::Close, None, None),
@@ -133,6 +144,16 @@ pub fn spawn_settings_popup(
                         &[("-", SettingsAction::BatchDown), ("+", SettingsAction::BatchUp)],
                         "Higher values use more memory but process faster", 5);
 
+                    spawn_settings_section(card, theme, "Downloads");
+                    spawn_settings_row(card, theme, "Format", config.download_format(),
+                        SettingsValueText(SettingsField::DownloadFormat),
+                        &[("<", SettingsAction::DownloadFormatPrev), (">", SettingsAction::DownloadFormatNext)],
+                        "Audio format for Spotify downloads", 6);
+                    spawn_settings_row(card, theme, "Timeout", &format!("{}s", config.download_timeout()),
+                        SettingsValueText(SettingsField::DownloadTimeout),
+                        &[("-", SettingsAction::DownloadTimeoutDown), ("+", SettingsAction::DownloadTimeoutUp)],
+                        "Max seconds per track download", 7);
+
                     card.spawn((
                         Text::new("Changes apply to future analyses. Use the re-analyze button on song cards to apply."),
                         TextFont { font_size: 12.0, ..default() },
@@ -143,8 +164,8 @@ pub fn spawn_settings_popup(
                         },
                     ));
 
-                    spawn_settings_wide_btn(card, "Restore Defaults", SettingsAction::RestoreDefaults, theme, 6);
-                    spawn_settings_wide_btn(card, "Close", SettingsAction::Close, theme, 7);
+                    spawn_settings_wide_btn(card, "Restore Defaults", SettingsAction::RestoreDefaults, theme, 8);
+                    spawn_settings_wide_btn(card, "Close", SettingsAction::Close, theme, 9);
                 });
         });
 }
@@ -366,6 +387,30 @@ fn dispatch_settings_action(
             config.save();
             set_settings_text(value_texts, SettingsField::Batch, &new_val.to_string());
         }
+        SettingsAction::DownloadFormatPrev | SettingsAction::DownloadFormatNext => {
+            let current = config.download_format();
+            let idx = DOWNLOAD_FORMATS.iter().position(|&f| f == current).unwrap_or(0);
+            let next_idx = if matches!(action, SettingsAction::DownloadFormatNext) {
+                (idx + 1) % DOWNLOAD_FORMATS.len()
+            } else {
+                (idx + DOWNLOAD_FORMATS.len() - 1) % DOWNLOAD_FORMATS.len()
+            };
+            config.download_format = Some(DOWNLOAD_FORMATS[next_idx].to_string());
+            config.save();
+            set_settings_text(value_texts, SettingsField::DownloadFormat, DOWNLOAD_FORMATS[next_idx]);
+        }
+        SettingsAction::DownloadTimeoutUp => {
+            let new_val = (config.download_timeout() + 30).min(600);
+            config.download_timeout = Some(new_val);
+            config.save();
+            set_settings_text(value_texts, SettingsField::DownloadTimeout, &format!("{new_val}s"));
+        }
+        SettingsAction::DownloadTimeoutDown => {
+            let new_val = config.download_timeout().saturating_sub(30).max(30);
+            config.download_timeout = Some(new_val);
+            config.save();
+            set_settings_text(value_texts, SettingsField::DownloadTimeout, &format!("{new_val}s"));
+        }
         SettingsAction::RestoreDefaults => {
             config.separator = None;
             config.whisper_model = None;
@@ -373,6 +418,8 @@ fn dispatch_settings_action(
             config.batch_size = None;
             config.fullscreen = None;
             config.show_logs = None;
+            config.download_format = None;
+            config.download_timeout = None;
             config.save();
             set_settings_text(value_texts, SettingsField::Separator, separator_display(config.separator()));
             set_settings_text(value_texts, SettingsField::Model, config.whisper_model());
@@ -382,6 +429,8 @@ fn dispatch_settings_action(
             set_settings_text(value_texts, SettingsField::Fullscreen, fs_label);
             let logs_label = if config.show_logs() { "On" } else { "Off" };
             set_settings_text(value_texts, SettingsField::ShowLogs, logs_label);
+            set_settings_text(value_texts, SettingsField::DownloadFormat, config.download_format());
+            set_settings_text(value_texts, SettingsField::DownloadTimeout, &format!("{}s", config.download_timeout()));
             if let Ok(mut window) = windows.single_mut() {
                 window.mode = if config.is_fullscreen() {
                     WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current)
@@ -493,8 +542,10 @@ pub fn handle_settings_click(
                     SettingsAction::ModelPrev | SettingsAction::ModelNext => Some(3),
                     SettingsAction::BeamDown | SettingsAction::BeamUp => Some(4),
                     SettingsAction::BatchDown | SettingsAction::BatchUp => Some(5),
-                    SettingsAction::RestoreDefaults => Some(6),
-                    SettingsAction::Close => Some(7),
+                    SettingsAction::DownloadFormatPrev | SettingsAction::DownloadFormatNext => Some(6),
+                    SettingsAction::DownloadTimeoutDown | SettingsAction::DownloadTimeoutUp => Some(7),
+                    SettingsAction::RestoreDefaults => Some(8),
+                    SettingsAction::Close => Some(9),
                 };
                 if let (Some(sf), Some(row)) = (&mut settings_focus, row_for_action) {
                     sf.0 = row;

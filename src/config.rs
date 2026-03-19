@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub separator: Option<String>,
     pub language_overrides: Option<HashMap<String, String>>,
     pub show_logs: Option<bool>,
+    pub download_format: Option<String>,
+    pub download_timeout: Option<u64>,
 }
 
 impl AppConfig {
@@ -84,6 +86,14 @@ impl AppConfig {
         self.language_overrides
             .as_ref()
             .and_then(|m| m.get(hash).map(|s| s.as_str()))
+    }
+
+    pub fn download_format(&self) -> &str {
+        self.download_format.as_deref().unwrap_or("flac")
+    }
+
+    pub fn download_timeout(&self) -> u64 {
+        self.download_timeout.unwrap_or(120)
     }
 
     pub fn show_logs(&self) -> bool {

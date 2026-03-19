@@ -192,11 +192,13 @@ pub fn search_youtube(query: &str, expected_duration_ms: u64) -> Result<String, 
     Ok(url.clone())
 }
 
-/// Download audio from a YouTube URL as opus.
+/// Download audio from a YouTube URL.
 /// Calls `on_progress(percent)` as download progresses.
 pub fn download_audio(
     url: &str,
     output_path: &Path,
+    audio_format: &str,
+    timeout_secs: u64,
     on_progress: impl Fn(f32) + Send,
 ) -> Result<(), String> {
     let ytdlp = ytdlp_path();
@@ -206,12 +208,13 @@ pub fn download_audio(
     let output_str = output_path.to_string_lossy();
 
     // Remove extension — yt-dlp adds it based on --audio-format
-    let output_stem = output_str.trim_end_matches(".opus");
+    let ext = format!(".{audio_format}");
+    let output_stem = output_str.strip_suffix(&ext).unwrap_or(&output_str);
 
     let mut cmd = silent_command(&ytdlp);
     cmd.args([
         "-x",
-        "--audio-format", "opus",
+        "--audio-format", audio_format,
         "--audio-quality", "0",
         "--no-playlist",
         "--no-warnings",
@@ -228,10 +231,17 @@ pub fn download_audio(
         .spawn()
         .map_err(|e| format!("Failed to start yt-dlp download: {e}"))?;
 
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+
     // Read stdout for progress
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         for line in reader.lines().flatten() {
+            if std::time::Instant::now() > deadline {
+                eprintln!("[yt-dlp] Download timeout ({timeout_secs}s), killing process");
+                let _ = child.kill();
+                return Err(format!("Download timed out after {timeout_secs}s"));
+            }
             if let Some(pct) = parse_download_progress(&line) {
                 on_progress(pct);
             }
@@ -246,13 +256,13 @@ pub fn download_audio(
 
     // yt-dlp might create the file with a slightly different name; check
     if !output_path.is_file() {
-        // Try common variations
-        let webm_path = PathBuf::from(format!("{output_stem}.webm"));
-        let m4a_path = PathBuf::from(format!("{output_stem}.m4a"));
-
-        for alt in [&webm_path, &m4a_path] {
-            if alt.is_file() {
-                let _ = std::fs::rename(alt, output_path);
+        // Try common variations yt-dlp might produce
+        let alt_exts = ["webm", "m4a", "opus", "ogg", "mp3", "flac", "wav"];
+        for alt_ext in alt_exts {
+            let alt = PathBuf::from(format!("{output_stem}.{alt_ext}"));
+            if alt.is_file() && alt != output_path {
+                eprintln!("[yt-dlp] Renaming {} -> {}", alt.display(), output_path.display());
+                let _ = std::fs::rename(&alt, output_path);
                 break;
             }
         }

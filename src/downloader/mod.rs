@@ -164,9 +164,11 @@ fn process_download_queue(
         let progress_clone = Arc::clone(&progress);
         let track = request.track.clone();
         let music_folder = config.last_folder.clone();
+        let audio_format = config.download_format().to_string();
+        let timeout_secs = config.download_timeout();
 
         eprintln!(
-            "[downloader] Starting download: {} - {} (active: {}, queued: {})",
+            "[downloader] Starting download: {} - {} (active: {}, queued: {}, format: {audio_format})",
             track.artists.join(", "),
             track.name,
             manager.active.len() + 1,
@@ -174,7 +176,7 @@ fn process_download_queue(
         );
 
         let thread = std::thread::spawn(move || {
-            download_track(track, progress_clone, music_folder)
+            download_track(track, progress_clone, music_folder, audio_format, timeout_secs)
         });
 
         manager.active.push(ActiveDownload {
@@ -232,7 +234,7 @@ fn poll_active_downloads(mut manager: ResMut<DownloadManager>) {
 }
 
 /// Determine output path: music_folder/Album/Artist - Title.opus
-fn output_path_for(track: &SpotifyTrack, music_folder: Option<&PathBuf>) -> PathBuf {
+fn output_path_for(track: &SpotifyTrack, music_folder: Option<&PathBuf>, config_format: Option<&str>) -> PathBuf {
     let base = match music_folder {
         Some(folder) if folder.is_dir() => folder.clone(),
         _ => {
@@ -253,7 +255,8 @@ fn output_path_for(track: &SpotifyTrack, music_folder: Option<&PathBuf>) -> Path
     let dir = base.join(&album);
     let _ = std::fs::create_dir_all(&dir);
 
-    dir.join(format!("{filename}.opus"))
+    let format = config_format.unwrap_or("flac");
+    dir.join(format!("{filename}.{format}"))
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -271,8 +274,10 @@ fn download_track(
     track: SpotifyTrack,
     progress: Arc<Mutex<DownloadProgress>>,
     music_folder: Option<PathBuf>,
+    audio_format: String,
+    timeout_secs: u64,
 ) -> Result<PathBuf, String> {
-    let output_path = output_path_for(&track, music_folder.as_ref());
+    let output_path = output_path_for(&track, music_folder.as_ref(), Some(&audio_format));
 
     eprintln!(
         "[downloader] Output path: {}",
@@ -320,9 +325,9 @@ fn download_track(
         p.percent = 0.0;
     }
 
-    eprintln!("[downloader] Downloading audio...");
+    eprintln!("[downloader] Downloading audio (format={audio_format}, timeout={timeout_secs}s)...");
     let progress_clone = Arc::clone(&progress);
-    ytdlp::download_audio(&youtube_url, &output_path, move |pct| {
+    ytdlp::download_audio(&youtube_url, &output_path, &audio_format, timeout_secs, move |pct| {
         let mut p = progress_clone.lock().unwrap();
         p.percent = pct;
         if pct as u32 % 25 == 0 {
