@@ -521,6 +521,14 @@ pub fn build_sidebar(
             has_folder,
         );
 
+        spawn_sidebar_button(
+            sidebar,
+            "Search Spotify",
+            SidebarAction::SpotifySearch,
+            theme,
+            true,
+        );
+
         sidebar.spawn(Node {
             flex_grow: 1.0,
             ..default()
@@ -798,6 +806,9 @@ fn execute_sidebar_action(
         }
         SidebarAction::Exit => {
             spawn_exit_popup(commands, theme);
+        }
+        SidebarAction::SpotifySearch => {
+            super::spotify_search::spawn_spotify_search(commands, theme);
         }
         SidebarAction::ChangeFolder => {
             if pending.is_some() {

@@ -8,6 +8,7 @@ mod search;
 pub mod settings;
 pub mod sidebar;
 pub mod song_card;
+pub mod spotify_search;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageSampler, ImageType};
@@ -72,12 +73,14 @@ fn update_overlay_state(
     exit: Query<(), With<sidebar::ExitOverlay>>,
     lang_picker: Query<(), With<LanguagePickerOverlay>>,
     about: Query<(), With<AboutOverlay>>,
+    spotify_search: Query<(), With<SpotifySearchOverlay>>,
 ) {
     overlay_open.0 = !settings.is_empty()
         || !profile.is_empty()
         || !exit.is_empty()
         || !lang_picker.is_empty()
-        || !about.is_empty();
+        || !about.is_empty()
+        || !spotify_search.is_empty();
 }
 
 pub struct MenuPlugin;
@@ -126,7 +129,12 @@ impl Plugin for MenuPlugin {
             )
             .add_systems(
                 Update,
-                handle_sort_click.run_if(in_state(AppState::Menu)),
+                (
+                    handle_sort_click,
+                    spotify_search::handle_spotify_search_input,
+                    spotify_search::handle_spotify_search_interaction,
+                    spotify_search::update_spotify_download_status,
+                ).run_if(in_state(AppState::Menu)),
             )
             .add_systems(
                 Update,

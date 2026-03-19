@@ -19,6 +19,7 @@ pub struct EmptyStateRoot;
 pub enum SidebarAction {
     RescanFolder,
     ChangeFolder,
+    SpotifySearch,
     Settings,
     ToggleTheme,
     Profile,
@@ -121,6 +122,42 @@ pub struct AboutCloseButton;
 
 #[derive(Component)]
 pub struct SortButton(pub super::LibrarySort);
+
+// --- Spotify Search ---
+
+#[derive(Component)]
+pub struct SpotifySearchOverlay;
+
+#[derive(Component)]
+pub struct SpotifySearchInput;
+
+#[derive(Component)]
+pub struct SpotifySearchResultsRoot;
+
+#[derive(Component)]
+pub struct SpotifyDownloadQueueRoot;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpotifySearchTab {
+    Tracks,
+    Albums,
+}
+
+#[derive(Component)]
+pub struct SpotifyTabButton(pub SpotifySearchTab);
+
+#[derive(Component)]
+pub struct SpotifyTrackDownloadBtn {
+    pub index: usize,
+}
+
+#[derive(Component)]
+pub struct SpotifyAlbumDownloadBtn {
+    pub index: usize,
+}
+
+#[derive(Component)]
+pub struct SpotifyCloseButton;
 
 #[derive(Resource)]
 pub struct LanguagePickerTarget {
