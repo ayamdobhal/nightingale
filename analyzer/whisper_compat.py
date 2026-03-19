@@ -1,6 +1,34 @@
 """PyTorch / device compatibility helpers for Nightingale analyzer."""
 
-import torch
+import importlib
+import sys
+import time
+
+# On Windows, torch can partially initialise if a prior process was killed mid-
+# CUDA-init, leaving driver locks / DLL state.  Retry the import a few times.
+_MAX_IMPORT_RETRIES = 3
+torch = None
+for _attempt in range(_MAX_IMPORT_RETRIES):
+    try:
+        if "torch" in sys.modules:
+            del sys.modules["torch"]
+        import torch as _torch_mod
+
+        # Sanity-check the module actually loaded fully
+        if not hasattr(_torch_mod, "load"):
+            raise AttributeError("torch imported but missing 'load' — partial init")
+        torch = _torch_mod
+        break
+    except (AttributeError, ImportError, OSError) as exc:
+        if _attempt < _MAX_IMPORT_RETRIES - 1:
+            print(
+                f"[whisper_compat] torch import failed (attempt {_attempt + 1}): {exc}, retrying...",
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(1)
+        else:
+            raise
 
 _original_torch_load = torch.load
 

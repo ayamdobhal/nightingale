@@ -431,7 +431,8 @@ fn spawn_analyzer(
 
                     if !retried {
                         retried = true;
-                        eprintln!("[analyzer] Respawning server and retrying");
+                        eprintln!("[analyzer] Respawning server and retrying (waiting 2s for GPU driver cleanup)");
+                        std::thread::sleep(std::time::Duration::from_secs(2));
                         let mut p = progress_clone.lock().unwrap();
                         p.percent = 0;
                         p.message = "Server crashed — retrying...".into();
