@@ -808,7 +808,7 @@ fn execute_sidebar_action(
             spawn_exit_popup(commands, theme);
         }
         SidebarAction::SpotifySearch => {
-            super::spotify_search::spawn_spotify_search(commands, theme);
+            super::spotify_search::spawn_spotify_search(commands, theme, config);
         }
         SidebarAction::ChangeFolder => {
             if pending.is_some() {

@@ -71,10 +71,9 @@ pub spotify_client_secret: Option<String>,
 
 Default: read from env vars `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`, or from config.json.
 
-Client ID: `REDACTED_CLIENT_ID`
-Client Secret: `REDACTED_CLIENT_SECRET`
+Set via `~/.nightingale/config.json` (`spotify_client_id`, `spotify_client_secret`) or env vars `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`.
 
-These can be hardcoded as defaults or shipped in a `.env` — client credentials don't expose user data.
+Get credentials at https://developer.spotify.com/dashboard
 
 ---
 

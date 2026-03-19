@@ -22,6 +22,8 @@ pub struct AppConfig {
     pub show_logs: Option<bool>,
     pub download_format: Option<String>,
     pub download_timeout: Option<u64>,
+    pub spotify_client_id: Option<String>,
+    pub spotify_client_secret: Option<String>,
 }
 
 impl AppConfig {
