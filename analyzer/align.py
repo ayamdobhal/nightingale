@@ -3,6 +3,8 @@
 import json
 import re
 
+import torch
+
 from audio import detect_vocal_region
 from language import detect_language_multiwindow
 from whisper_compat import progress, align_device_for, compute_type_for, align_with_fallback
