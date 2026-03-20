@@ -117,8 +117,13 @@ def transcribe_vocals(
         language=language,
         chunk_size=30,
     )
-    if owns_model:
+    # Free whisper model before alignment to avoid two large models on GPU.
+    if not owns_model and pre_align_cleanup:
+        print("[nightingale:LOG] Freeing whisper model before alignment", flush=True)
+        pre_align_cleanup()
+    elif owns_model:
         del model
+    model = None
 
     raw_segments = result.get("segments", [])
     for seg in raw_segments:
@@ -137,7 +142,8 @@ def transcribe_vocals(
     raw_segments = _filter_hallucinations(raw_segments, duration_secs)
 
     progress(75, f"Language: {language}")
-    result = _align_and_build(raw_segments, full_audio, language, device, pre_align_cleanup)
+    # pre_align_cleanup already called above; pass None to avoid redundant cleanup
+    result = _align_and_build(raw_segments, full_audio, language, device, None)
     result["source"] = "generated"
     return result
 

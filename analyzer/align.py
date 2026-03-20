@@ -69,11 +69,19 @@ def align_lyrics(
         print(f"[nightingale:LOG] Detected language: '{language}'", flush=True)
         progress(59, f"Detected language: {language}")
 
+    # Free the whisper model before loading the alignment model to avoid
+    # two large models competing for VRAM (causes hangs on subsequent songs).
+    if pre_align_cleanup:
+        print("[nightingale:LOG] Freeing whisper model before alignment", flush=True)
+        pre_align_cleanup()
+
     progress(80, f"Final alignment from {vocal_start:.1f}s...")
     full_text = " ".join(clean_lines)
     raw_segments = [{"text": full_text, "start": vocal_start, "end": vocal_end}]
 
-    align_result = align_with_fallback(raw_segments, audio, language, a_device, pre_align_cleanup)
+    # pre_align_cleanup already called above; pass None so align_with_fallback
+    # skips straight to CPU fallback on OOM instead of a redundant cleanup.
+    align_result = align_with_fallback(raw_segments, audio, language, a_device, None)
 
     segments = _map_words_to_lines(align_result, clean_lines)
 
