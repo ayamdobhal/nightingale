@@ -5,8 +5,10 @@ use serde::Deserialize;
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const API_BASE: &str = "https://api.spotify.com/v1";
 
-// Credentials are read from config or env vars (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET)
-// Get a client ID/secret at https://developer.spotify.com/dashboard
+// Credentials: config.json > env vars > built-in defaults (client credentials only, no user data)
+// Override at https://developer.spotify.com/dashboard
+const FALLBACK_CLIENT_ID: &str = "f8605a1069bd4d62b13230240c0c10a9";
+const FALLBACK_CLIENT_SECRET: &str = "0b00822d6e7f4120aefa081c70e2b4e7";
 
 #[derive(Debug, Clone)]
 pub struct SpotifyTrack {
@@ -39,22 +41,22 @@ pub struct SpotifyClient {
 }
 
 impl SpotifyClient {
-    pub fn new(client_id: Option<&str>, client_secret: Option<&str>) -> Result<Self, String> {
+    pub fn new(client_id: Option<&str>, client_secret: Option<&str>) -> Self {
         let id = client_id
             .map(|s| s.to_string())
             .or_else(|| std::env::var("SPOTIFY_CLIENT_ID").ok())
-            .ok_or_else(|| "Spotify client ID not configured. Set spotify_client_id in ~/.nightingale/config.json or SPOTIFY_CLIENT_ID env var.".to_string())?;
+            .unwrap_or_else(|| FALLBACK_CLIENT_ID.to_string());
         let secret = client_secret
             .map(|s| s.to_string())
             .or_else(|| std::env::var("SPOTIFY_CLIENT_SECRET").ok())
-            .ok_or_else(|| "Spotify client secret not configured. Set spotify_client_secret in ~/.nightingale/config.json or SPOTIFY_CLIENT_SECRET env var.".to_string())?;
-        Ok(Self {
+            .unwrap_or_else(|| FALLBACK_CLIENT_SECRET.to_string());
+        Self {
             client_id: id,
             client_secret: secret,
             access_token: None,
             expires_at: None,
             agent: ureq::Agent::new_with_defaults(),
-        })
+        }
     }
 
     fn ensure_token(&mut self) -> Result<(), String> {

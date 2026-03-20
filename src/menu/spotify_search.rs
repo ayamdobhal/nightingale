@@ -641,14 +641,7 @@ fn trigger_search(state: &mut SpotifySearchState) {
     let result_clone = Arc::clone(&result);
 
     std::thread::spawn(move || {
-        let mut client = match SpotifyClient::new(cid.as_deref(), csecret.as_deref()) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[spotify] {e}");
-                *result_clone.lock().unwrap() = Some(SearchResult::Tracks(Err(e)));
-                return;
-            }
-        };
+        let mut client = SpotifyClient::new(cid.as_deref(), csecret.as_deref());
         let search_result = match tab {
             SpotifySearchTab::Tracks => {
                 SearchResult::Tracks(client.search_tracks(&query, 20))
@@ -771,14 +764,7 @@ pub(super) fn handle_spotify_search_interaction(
             let cid2 = state.client_id.clone();
             let csecret2 = state.client_secret.clone();
             std::thread::spawn(move || {
-                let mut client = match SpotifyClient::new(cid2.as_deref(), csecret2.as_deref()) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("[spotify] {e}");
-                        *result_clone.lock().unwrap() = Some(Err(e));
-                        return;
-                    }
-                };
+                let mut client = SpotifyClient::new(cid2.as_deref(), csecret2.as_deref());
                 *result_clone.lock().unwrap() = Some(client.album_tracks(&album_id));
             });
 
