@@ -1,8 +1,27 @@
 """PyTorch / device compatibility helpers for Nightingale analyzer."""
 
 import importlib
+import os
 import sys
 import time
+
+# Prevent cwd or stray directories from shadowing the real torch package.
+# Remove any path entry that contains a bare "torch" directory with a _C
+# sub-directory (i.e. a PyTorch source checkout rather than an installed package).
+_clean_paths = []
+for _p in sys.path:
+    _torch_candidate = os.path.join(_p, "torch", "_C")
+    if os.path.isdir(_torch_candidate) and not os.path.isfile(
+        os.path.join(_p, "torch", "_C" + (".pyd" if os.name == "nt" else ".so"))
+    ):
+        print(
+            f"[whisper_compat] Removing shadowing path from sys.path: {_p}",
+            file=sys.stderr,
+            flush=True,
+        )
+        continue
+    _clean_paths.append(_p)
+sys.path[:] = _clean_paths
 
 # On Windows, torch can partially initialise if a prior process was killed mid-
 # CUDA-init, leaving driver locks / DLL state.  Retry the import a few times.

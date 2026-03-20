@@ -107,13 +107,16 @@ fn spawn_server() -> Result<ServerProcess, NightingaleError> {
         ffmpeg_dir.as_os_str().to_os_string()
     };
 
+    let analyzer_dir = crate::vendor::analyzer_dir();
     let mut cmd = silent_command(&python);
-    cmd.env("PATH", &path_env)
+    cmd.current_dir(&analyzer_dir)
+        .env("PATH", &path_env)
         .env("TORCH_HOME", models.join("torch"))
         .env("HF_HOME", models.join("huggingface"))
         .env("FFMPEG_PATH", &ffmpeg)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONWARNINGS", "ignore")
+        .env("PYTHONNOUSERSITE", "1")
         .env("PYTORCH_ENABLE_MPS_FALLBACK", "1")
         .env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         .env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
