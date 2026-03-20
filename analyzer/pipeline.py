@@ -122,6 +122,8 @@ def run_pipeline(
         whisper_model=whisper_model,
         pre_align_cleanup=pre_align_cleanup,
     )
+    # Clear local ref after callee is done (callee handles its own cleanup)
+    del whisper_model
 
     progress(95, "Writing transcript...")
     with open(transcript_path, "w", encoding="utf-8") as f:

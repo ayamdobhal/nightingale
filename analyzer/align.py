@@ -71,9 +71,17 @@ def align_lyrics(
 
     # Free the whisper model before loading the alignment model to avoid
     # two large models competing for VRAM (causes hangs on subsequent songs).
+    # Must delete local ref too — pre_align_cleanup only clears the global.
+    del whisper_model
+    whisper_model = None
     if pre_align_cleanup:
         print("[nightingale:LOG] Freeing whisper model before alignment", flush=True)
         pre_align_cleanup()
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print(f"[nightingale:LOG] VRAM after cleanup: {torch.cuda.memory_allocated()/(1024**2):.0f}MB allocated, {torch.cuda.memory_reserved()/(1024**2):.0f}MB reserved", flush=True)
 
     progress(80, f"Final alignment from {vocal_start:.1f}s...")
     full_text = " ".join(clean_lines)

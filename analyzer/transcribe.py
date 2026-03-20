@@ -2,6 +2,8 @@
 
 import re
 
+import torch
+
 from audio import detect_vocal_region, highpass_filter, normalize_rms
 from hallucination import is_hallucination, remove_hallucinated_words
 from language import detect_language_multiwindow
@@ -118,12 +120,20 @@ def transcribe_vocals(
         chunk_size=30,
     )
     # Free whisper model before alignment to avoid two large models on GPU.
-    if not owns_model and pre_align_cleanup:
+    # Must delete ALL local refs so Python refcount drops to 0.
+    del model
+    model = None
+    if whisper_model is not None:
+        del whisper_model
+        whisper_model = None
+    if pre_align_cleanup:
         print("[nightingale:LOG] Freeing whisper model before alignment", flush=True)
         pre_align_cleanup()
-    elif owns_model:
-        del model
-    model = None
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print(f"[nightingale:LOG] VRAM after cleanup: {torch.cuda.memory_allocated()/(1024**2):.0f}MB allocated, {torch.cuda.memory_reserved()/(1024**2):.0f}MB reserved", flush=True)
 
     raw_segments = result.get("segments", [])
     for seg in raw_segments:
